@@ -5051,6 +5051,11 @@
           "description": "If the Tailwind Prefix function is used, this can be specified here (e.g. tw-).",
           "type": "string",
           "scope": "window"
+        },
+        "headwind.formatterPriority": {
+          "default": 0,
+          "description": "Priority of coc format provider.",
+          "type": "number"
         }
       }
     }

@@ -1,4 +1,4 @@
-import { commands, workspace, ExtensionContext, Range, Uri, window } from 'coc.nvim';
+import { commands, languages, workspace, ExtensionContext, Range, Uri, TextEdit, TextDocument, window } from 'coc.nvim';
 import { sortClassString } from './utils';
 import { spawn } from 'child_process';
 import { rustyWindPath } from 'rustywind';
@@ -18,12 +18,14 @@ const shouldPrependCustomClassesConfig = config.get('headwind.prependCustomClass
 const shouldPrependCustomClasses =
   typeof shouldPrependCustomClassesConfig === 'boolean' ? shouldPrependCustomClassesConfig : false;
 
-export function activate(context: ExtensionContext) {
-  const disposable = commands.registerCommand('headwind.sortTailwindClasses', async () => {
-    const document = await workspace.document;
+const formatterPriority = config.get<number>('headwind.formatterPriority', 0);
 
-    const editorText = document.textDocument.getText();
-    const editorLangId = document.textDocument.languageId;
+export function activate(context: ExtensionContext) {
+  function getSortTailwindClassesEdits(document: TextDocument): TextEdit[] {
+    const edits: TextEdit[] = [];
+
+    const editorText = document.getText();
+    const editorLangId = document.languageId;
 
     const classWrapperRegex = new RegExp(configRegex[editorLangId] || configRegex['html'], 'gi');
     let classWrapper: RegExpExecArray | null;
@@ -35,10 +37,7 @@ export function activate(context: ExtensionContext) {
       const startPosition = classWrapper.index + wrapperMatch.lastIndexOf(valueMatch);
       const endPosition = startPosition + valueMatch.length;
 
-      const range = Range.create(
-        document.textDocument.positionAt(startPosition),
-        document.textDocument.positionAt(endPosition)
-      );
+      const range = Range.create(document.positionAt(startPosition), document.positionAt(endPosition));
 
       const options = {
         shouldRemoveDuplicates,
@@ -46,10 +45,21 @@ export function activate(context: ExtensionContext) {
         customTailwindPrefix,
       };
 
-      document.applyEdits([
-        { range, newText: sortClassString(valueMatch, Array.isArray(sortOrder) ? sortOrder : [], options) },
-      ]);
+      const newText = sortClassString(valueMatch, Array.isArray(sortOrder) ? sortOrder : [], options);
+
+      // don't include the edit when nothing changed, this is needed to play nice with other plugins that use `onWillSaveTextDocument`
+      if (document.getText(range) != newText) {
+        edits.push(TextEdit.replace(range, newText));
+      }
     }
+
+    window.showInformationMessage('Formatted by Headwind');
+    return edits;
+  }
+
+  const disposable = commands.registerCommand('headwind.sortTailwindClasses', async () => {
+    const document = await workspace.document;
+    document.applyEdits(getSortTailwindClassesEdits(document.textDocument));
   });
 
   const runOnProject = commands.registerCommand('headwind.sortTailwindClassesOnWorkspace', () => {
@@ -81,12 +91,20 @@ export function activate(context: ExtensionContext) {
   context.subscriptions.push(runOnProject);
   context.subscriptions.push(disposable);
 
-  // if runOnSave is enabled organize tailwind classes before saving
-  if (config.get('headwind.runOnSave')) {
-    context.subscriptions.push(
-      workspace.onWillSaveTextDocument(() => {
-        commands.executeCommand('headwind.sortTailwindClasses');
-      })
-    );
-  }
+  languages.registerDocumentFormatProvider(
+    [
+      { language: 'html' },
+      { language: 'javascript' },
+      { language: 'typescript' },
+      { language: 'javascriptreact' },
+      { language: 'typescriptreact' },
+      { language: 'vue' },
+    ],
+    {
+      provideDocumentFormattingEdits(document: TextDocument): TextEdit[] {
+        return getSortTailwindClassesEdits(document);
+      },
+    },
+    formatterPriority
+  );
 }
