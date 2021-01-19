@@ -94,6 +94,7 @@ export function activate(context: ExtensionContext) {
   languages.registerDocumentFormatProvider(
     [
       { language: 'html' },
+      { language: 'css' },
       { language: 'javascript' },
       { language: 'typescript' },
       { language: 'javascriptreact' },
